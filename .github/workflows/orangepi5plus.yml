@@ -28,19 +28,21 @@ jobs:
             experimental-features = nix-command flakes
             accept-flake-config = true
 
-      - name: Build NixOS image for Orange Pi 5 Plus
+      - name: Build NixOS Raw Efi Image for Orange Pi 5 Plus
+        id: build-rawefi
         run: |
           nix build .#rawEfiImage-opi5plus --show-trace -L --verbose
           mkdir -p release_files
           cat result | xz -9 > release_files/nixos-opi5plus.rawEfi.img.xz
           ls -lh release_files
+          echo "status=success" >> $GITHUB_OUTPUT
         env:
           NIX_BUILD_CORES: 0
           NIX_OPTIONS: '--extra-experimental-features "nix-command flakes"'
 
       - name: Generate release tag
         id: tag
-        if: !cancelled()
+        if: steps.build-rawefi.outputs.status == 'success' && !cancelled()
         run: |
           echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
           touch release.txt
