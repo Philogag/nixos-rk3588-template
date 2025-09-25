@@ -3,15 +3,6 @@ name: Orange Pi 5 Plus Image Build
 
 on:
   workflow_dispatch:
-    inputs:
-      nix_version:
-        description: 'Nix version to install'
-        required: false
-        default: 'latest'
-      target_platform:
-        description: 'Target platform for the build'
-        required: false
-        default: 'aarch64-linux'
 
 jobs:
   build-image:
