@@ -1,0 +1,90 @@
+# .github/workflows/orangepi5plus.yml
+name: Build Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      board:
+        description: 'Board to build for'
+        required: true
+        default: 'opi5plus'
+        options:
+          - opi5
+          - opi5plus
+          - rock5a
+      build_type:
+        description: 'Flake build type'
+        required: true
+        default: 'rawEfiImage'
+        options:
+          - rawEfiImage
+          - sdImage
+          - isoImage
+
+jobs:
+  build-image:
+    runs-on: ubuntu-22.04-arm
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          nix_path: nixpkgs=channel:nixos-25.05
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+
+      - name: Build NixOS Raw Efi Image for Orange Pi 5 Plus
+        id: build
+        run: |
+          nix build .#${{ github.event.inputs.build_type }}-${{ github.event.inputs.board }} --show-trace -L --verbose
+          echo "status=success" >> $GITHUB_OUTPUT
+        env:
+          NIX_BUILD_CORES: 8
+          NIX_OPTIONS: '--extra-experimental-features "nix-command flakes"'
+
+      - name: Collect release files
+        run: |
+          mkdir -p release_files
+          
+          case "${{ github.event.inputs.build_type }}" in
+            "rawEfiImage")
+              INPUT=result
+              OUTPUT_EXT=efi.img
+              ;;
+            "sdImage")
+              INPUT=result
+              OUTPUT_EXT=sd.img
+              ;;
+            "isoImage")
+              INPUT=`ls result/*.iso -1 | head -n 1`
+              OUTPUT_EXT=iso
+              ;;
+            *)
+              INPUT=result
+              OUTPUT_EXT=img
+              ;;
+          esac
+          OUTPUT=nixos-${{ github.event.inputs.board }}.`date +"%Y.%m.%d-%H%M"`.${OUTPUT_EXT}.xz
+          ls -lh release_files
+
+      - name: Generate release tag
+        id: tag
+        if: steps.build.outputs.status == 'success' && !cancelled()
+        run: |
+          echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
+          touch release.txt
+          [ ${UPLOAD_GOFILE} = true && ${{ steps.gofile.outputs.url }} ] && echo "🔗 [GoFile](${{ steps.gofile.outputs.url }})" >> release.txt
+          echo "status=success" >> $GITHUB_OUTPUT
+      
+      - name: Upload firmware to release
+        uses: softprops/action-gh-release@master
+        if: steps.tag.outputs.status == 'success' && !cancelled()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.tag.outputs.release_tag }}
+          body_path: release.txt
+          files: release_files/*
