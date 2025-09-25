@@ -1,0 +1,58 @@
+# .github/workflows/orangepi5plus.yml
+name: Orange Pi 5 Plus Image Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      nix_version:
+        description: 'Nix version to install'
+        required: false
+        default: 'latest'
+      target_platform:
+        description: 'Target platform for the build'
+        required: false
+        default: 'aarch64-linux'
+
+jobs:
+  build-image:
+    runs-on: ubuntu-22.04-arm
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          nix_path: nixpkgs=channel:nixos-25.05
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+
+      - name: Build NixOS image for Orange Pi 5 Plus
+        run: |
+          nix build .#rawEfiImage-opi5plus --show-trace -L --verbose
+          mkdir -p release_files
+          cat result | xz -9 > release_files/nixos-opi5plus.rawEfi.img.xz
+          ls -lh release_files
+        env:
+          NIX_BUILD_CORES: 0
+          NIX_OPTIONS: '--extra-experimental-features "nix-command flakes"'
+
+      - name: Generate release tag
+        id: tag
+        if: !cancelled()
+        run: |
+          echo "release_tag=$(date +"%Y.%m.%d-%H%M")" >> $GITHUB_OUTPUT
+          touch release.txt
+          [ ${UPLOAD_GOFILE} = true && ${{ steps.gofile.outputs.url }} ] && echo "🔗 [GoFile](${{ steps.gofile.outputs.url }})" >> release.txt
+          echo "status=success" >> $GITHUB_OUTPUT
+      
+      - name: Upload firmware to release
+        uses: softprops/action-gh-release@master
+        if: steps.tag.outputs.status == 'success' && !cancelled()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.tag.outputs.release_tag }}
+          body_path: release.txt
+          files: ${{ env.FIRMWARE }}/*
